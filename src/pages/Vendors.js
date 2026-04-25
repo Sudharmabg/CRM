@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   useReactTable, 
   getCoreRowModel, 
@@ -152,7 +152,7 @@ const Vendors = () => {
     return allTransactions.filter(t => t.vendor_id === selectedVendor.id);
   }, [selectedVendor, allTransactions]);
 
-  const handleUpdateField = async (vendorId, field, newValue, itemName) => {
+  const handleUpdateField = useCallback(async (vendorId, field, newValue, itemName) => {
     try {
       const { error } = await supabase
         .from('vendors')
@@ -166,7 +166,7 @@ const Vendors = () => {
     } catch (error) {
       console.error('Error updating vendor field:', error);
     }
-  };
+  }, []);
 
   const handleAddVendor = async (e) => {
     if (e) e.preventDefault();

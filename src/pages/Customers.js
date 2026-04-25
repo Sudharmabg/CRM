@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   useReactTable, 
   getCoreRowModel, 
@@ -196,13 +196,7 @@ const Customers = () => {
   };
 
 
-  const handleUpdateStatus = (customerId, newStatus, currentItem) => {
-    if (currentItem.status === newStatus) return;
-    handleUpdateField(customerId, 'status', newStatus, currentItem.name);
-  };
-
-
-  const handleUpdateField = async (customerId, field, newValue, itemName) => {
+  const handleUpdateField = useCallback(async (customerId, field, newValue, itemName) => {
     try {
       const { error } = await supabase
         .from('customers')
@@ -215,7 +209,13 @@ const Customers = () => {
     } catch (error) {
       console.error(error);
     }
-  };
+  }, []);
+
+
+  const handleUpdateStatus = useCallback((customerId, newStatus, currentItem) => {
+    if (currentItem.status === newStatus) return;
+    handleUpdateField(customerId, 'status', newStatus, currentItem.name);
+  }, [handleUpdateField]);
 
   const handleAddMeeting = async (e) => {
     e.preventDefault();
