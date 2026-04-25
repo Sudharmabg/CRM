@@ -1,13 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100;300;400;500;600;700;800;900&display=swap');
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Outfit', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #fcfcfc;
+  color: #1a1a1a;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
+}
+
+/* Utilities */
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* FullCalendar Customizations */
+.fc {
+  --fc-border-color: #f3f4f6;
+  --fc-today-bg-color: #eff6ff;
+  font-family: 'Outfit', sans-serif;
+}
+
+.fc .fc-toolbar-title {
+  font-size: 1.1rem !important;
+  font-weight: 800 !important;
+  color: #111827;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.fc .fc-button {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  color: #4b5563 !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  font-size: 0.7rem !important;
+  border-radius: 0.75rem !important;
+  padding: 0.4rem 0.8rem !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
+}
+
+.fc .fc-button-primary:not(:disabled).fc-button-active, 
+.fc .fc-button-primary:not(:disabled):active {
+  background: #3b82f6 !important;
+  color: white !important;
+  border-color: #3b82f6 !important;
+}
+
+.fc th {
+  font-size: 0.7rem !important;
+  font-weight: 800 !important;
+  text-transform: uppercase;
+  color: #9ca3af !important;
+  padding: 0.75rem 0 !important;
+  border: none !important;
+}
+
+.fc-daygrid-day-number {
+  font-size: 0.75rem !important;
+  font-weight: 800 !important;
+  color: #1a1a1a !important;
+  padding: 4px 6px !important;
+  display: block !important;
+  width: 100%;
+  text-align: right;
+}
+
+.fc-daygrid-day-top {
+  flex-direction: row !important;
+}
+
+.compact-event {
+  border: none !important;
+  padding: 1px 4px !important;
+  border-radius: 4px !important;
+  font-size: 0.6rem !important;
+  font-weight: 800 !important;
+  margin: 1px !important;
+}
+
+.fc-event-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .fc .fc-toolbar-title {
+    font-size: 0.9rem !important;
+  }
+  .fc-daygrid-day-number {
+    font-size: 0.85rem !important;
+    font-weight: 900 !important;
+    color: #111827 !important;
+    padding: 5px !important;
+    position: relative !important;
+    z-index: 10 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+  .fc-daygrid-day-top {
+    display: flex !important;
+    justify-content: flex-end !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+  .fc-col-header-cell-cushion {
+    font-size: 0.65rem !important;
+    font-weight: 900 !important;
+  }
+  .fc-daygrid-day-frame {
+    min-height: 60px !important;
+  }
 }

@@ -1,24 +1,42 @@
-import logo from './logo.svg';
-import './App.css';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import Layout from './components/Layout';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Customers from './pages/Customers';
+import Vendors from './pages/Vendors';
+import CalendarView from './pages/CalendarView';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <AuthProvider>
+      <Router>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={
+            <Layout>
+              <Dashboard />
+            </Layout>
+          } />
+          <Route path="/customers" element={
+            <Layout>
+              <Customers />
+            </Layout>
+          } />
+          <Route path="/vendors" element={
+            <Layout>
+              <Vendors />
+            </Layout>
+          } />
+          <Route path="/calendar" element={
+            <Layout>
+              <CalendarView />
+            </Layout>
+          } />
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
 
