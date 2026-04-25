@@ -93,7 +93,6 @@ const Customers = () => {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState('');
-  const [pendingUpdate, setPendingUpdate] = useState(null);
   const navigate = useNavigate();
   
   // New entry states for drawer
@@ -199,15 +198,7 @@ const Customers = () => {
 
   const handleUpdateStatus = (customerId, newStatus, currentItem) => {
     if (currentItem.status === newStatus) return;
-    setPendingUpdate({
-      type: 'status',
-      id: customerId,
-      field: 'status',
-      oldValue: currentItem.status,
-      newValue: newStatus,
-      label: 'Update Customer Status',
-      itemId: currentItem.name
-    });
+    handleUpdateField(customerId, 'status', newStatus, currentItem.name);
   };
 
 
@@ -268,7 +259,7 @@ const Customers = () => {
   const handleAddCustomer = async (e) => {
     e.preventDefault();
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('customers')
         .insert([{
           ...newCustomer,
@@ -370,7 +361,7 @@ const Customers = () => {
         </button>
       )
     }
-  ], [customers, handleUpdateField, handleUpdateStatus]);
+  ], [handleUpdateField, handleUpdateStatus]);
 
   const table = useReactTable({
     data: customers,

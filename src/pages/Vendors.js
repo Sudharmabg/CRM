@@ -22,7 +22,7 @@ import {
   History,
   CreditCard
 } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { parseISO } from 'date-fns';
 
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 
@@ -305,7 +305,7 @@ const Vendors = () => {
         </button>
       )
     }
-  ], [vendors, vendorTotals, customers, handleUpdateField]);
+  ], [vendorTotals, customers, handleUpdateField]);
 
   const table = useReactTable({
     data: vendors,
