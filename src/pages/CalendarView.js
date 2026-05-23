@@ -221,14 +221,14 @@ const CalendarView = () => {
 
       <div className="flex flex-col lg:flex-row gap-6 lg:flex-1 min-h-0">
         {/* Calendar */}
-        <div className="flex-[4] bg-white p-2 sm:p-4 md:p-6 border border-gray-100 rounded-[1.5rem] sm:rounded-[2.5rem] shadow-sm flex flex-col min-h-[450px] md:min-h-[500px] lg:min-h-0 overflow-hidden">
-            <div className="flex-1 min-h-0 calendar-container mobile-calendar">
+        <div className="flex-[4] bg-white p-2 sm:p-4 md:p-6 border border-gray-100 rounded-[1.5rem] sm:rounded-[2.5rem] shadow-sm flex flex-col min-h-[450px] md:min-h-[500px] lg:min-h-[600px]">
+            <div className="flex-1 calendar-container mobile-calendar">
               <FullCalendar
                 ref={calendarRef}
                 plugins={[dayGridPlugin, interactionPlugin]}
                 initialView="dayGridMonth"
                 events={events}
-                height={windowWidth < 768 ? 'auto' : '100%'}
+                height="auto"
                 aspectRatio={windowWidth < 768 ? 0.8 : 1.35}
                 headerToolbar={{ left: 'prev,next', center: 'title', right: '' }}
                 eventClassNames="compact-event"

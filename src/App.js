@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Vendors from './pages/Vendors';
 import CalendarView from './pages/CalendarView';
+import Budget from './pages/Budget';
 
 function App() {
   return (
@@ -32,6 +33,11 @@ function App() {
           <Route path="/calendar" element={
             <Layout>
               <CalendarView />
+            </Layout>
+          } />
+          <Route path="/budget" element={
+            <Layout>
+              <Budget />
             </Layout>
           } />
         </Routes>

@@ -18,9 +18,10 @@ import {
   CalendarDays,
   Wallet,
   TrendingDown,
-  ExternalLink,
   History,
-  CreditCard
+  CreditCard,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { parseISO } from 'date-fns';
 
@@ -71,6 +72,8 @@ const Vendors = () => {
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+  const [promptModal, setPromptModal] = useState(null);
   const [isReviewingNew, setIsReviewingNew] = useState(false);
   const navigate = useNavigate();
   
@@ -94,6 +97,19 @@ const Vendors = () => {
     notes: ''
   });
 
+  const fetchAll = useCallback(async () => {
+    const [vendorsRes, customersRes, txRes] = await Promise.all([
+      supabase.from('vendors').select('*').order('created_at', { ascending: false }),
+      supabase.from('customers').select('id, name').order('name', { ascending: true }),
+      supabase.from('vendor_transactions').select('*').order('transaction_date', { ascending: false }),
+    ]);
+
+    if (!vendorsRes.error) setVendors(vendorsRes.data);
+    if (!customersRes.error) setCustomers(customersRes.data);
+    if (!txRes.error) setAllTransactions(txRes.data);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     fetchAll();
 
@@ -116,20 +132,7 @@ const Vendors = () => {
       supabase.removeChannel(channel);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
-
-  const fetchAll = async () => {
-    const [vendorsRes, customersRes, txRes] = await Promise.all([
-      supabase.from('vendors').select('*').order('created_at', { ascending: false }),
-      supabase.from('customers').select('id, name').order('name', { ascending: true }),
-      supabase.from('vendor_transactions').select('*').order('transaction_date', { ascending: false }),
-    ]);
-
-    if (!vendorsRes.error) setVendors(vendorsRes.data);
-    if (!customersRes.error) setCustomers(customersRes.data);
-    if (!txRes.error) setAllTransactions(txRes.data);
-    setLoading(false);
-  };
+  }, [fetchAll]);
 
   const vendorTotals = useMemo(() => {
     const map = {};
@@ -166,7 +169,7 @@ const Vendors = () => {
     } catch (error) {
       console.error('Error updating vendor field:', error);
     }
-  }, []);
+  }, [fetchAll]);
 
   const handleAddVendor = async (e) => {
     if (e) e.preventDefault();
@@ -191,6 +194,46 @@ const Vendors = () => {
     } catch (error) {
       console.error('Error adding vendor:', error);
     }
+  };
+
+  const confirmPrompt = (title, label, defaultValue, action) => {
+    setPromptModal({ title, label, defaultValue, onSave: action });
+  };
+
+  const handleDeleteVendor = useCallback(async (id, name) => {
+    setDeleteConfirmation({
+      title: 'Vendor',
+      message: `Are you sure you want to delete ${name}? This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase.from('vendors').delete().eq('id', id);
+          if (error) throw error;
+          setSuccessMessage(`Deleted ${name}`);
+          fetchAll();
+        } catch (error) {
+          console.error('Error deleting vendor:', error);
+          alert('Could not delete vendor. They might have related records.');
+        }
+      }
+    });
+  }, [fetchAll]);
+
+  const handleDeleteTransaction = (id) => {
+    setDeleteConfirmation({
+      title: 'Payment',
+      message: 'Are you sure you want to delete this payment record? This cannot be undone.',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase.from('vendor_transactions').delete().eq('id', id);
+          if (error) throw error;
+          setSuccessMessage('Payment deleted');
+          fetchAll();
+          setTimeout(() => setSuccessMessage(''), 2000);
+        } catch (error) {
+          console.error('Error deleting transaction:', error);
+        }
+      }
+    });
   };
 
   const handleAddPayment = async (e) => {
@@ -259,8 +302,11 @@ const Vendors = () => {
       cell: ({ row, getValue }) => (
         <button 
           onClick={() => {
-            const newVal = prompt("Enter new credit limit:", getValue());
-            if (newVal !== null) handleUpdateField(row.original.id, 'credit_limit', Number(newVal), row.original.name);
+            confirmPrompt("Edit Credit Limit", "Enter new credit limit:", getValue(), (val) => {
+              if (val !== null && val !== "") {
+                handleUpdateField(row.original.id, 'credit_limit', Number(val), row.original.name);
+              }
+            });
           }}
           className="font-medium text-gray-900 hover:text-blue-600 transition-colors"
         >
@@ -292,20 +338,30 @@ const Vendors = () => {
     },
     {
       id: 'actions',
+      header: 'Action',
       cell: ({ row }) => (
-        <button
-          onClick={() => {
-            setSelectedVendor(row.original);
-            setActiveTab('Overview');
-          }}
-          className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-all group"
-          title="View Details"
-        >
-          <ExternalLink size={18} className="transform group-hover:scale-110 transition-transform" />
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => {
+              setSelectedVendor(row.original);
+              setActiveTab('Overview');
+            }}
+            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-all group shadow-sm bg-blue-50"
+            title="Edit Details"
+          >
+            <Edit2 size={16} className="transform group-hover:scale-110 transition-transform" />
+          </button>
+          <button 
+            onClick={() => handleDeleteVendor(row.original.id, row.original.name)}
+            className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition-all group shadow-sm bg-red-50"
+            title="Delete Vendor"
+          >
+            <Trash2 size={16} className="transform group-hover:scale-110 transition-transform" />
+          </button>
+        </div>
       )
     }
-  ], [vendorTotals, customers, handleUpdateField]);
+  ], [vendorTotals, customers, handleUpdateField, handleDeleteVendor]);
 
   const table = useReactTable({
     data: vendors,
@@ -435,7 +491,7 @@ const Vendors = () => {
                 <div>
                   <label className="text-[10px] font-black text-gray-400 block mb-1.5 uppercase tracking-[0.2em]">Linked Event / Customer</label>
                   <select
-                    className="w-full px-4 py-3.5 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-inner outline-none transition-all text-sm appearance-none bg-white"
+                    className="w-full px-4 py-3.5 bg-white border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-inner outline-none transition-all text-sm appearance-none"
                     value={newVendor.customer_id}
                     onChange={e => setNewVendor({...newVendor, customer_id: e.target.value})}
                   >
@@ -669,7 +725,7 @@ const Vendors = () => {
                       </div>
                     ) : (
                       selectedVendorTransactions.map(t => (
-                        <div key={t.id} className="p-4 border border-gray-100 rounded-xl bg-white shadow-sm flex justify-between items-center group hover:border-blue-100 transition-colors">
+                        <div key={t.id} className="p-4 border border-gray-100 rounded-xl bg-white shadow-sm flex justify-between items-center group hover:border-red-100 transition-colors">
                           <div className="space-y-1">
                              <div className="flex items-center space-x-2">
                                 <span className="font-bold text-gray-900">{fmt(t.amount)}</span>
@@ -685,12 +741,94 @@ const Vendors = () => {
                              </div>
                              {t.notes && <p className="text-xs text-gray-500 mt-1">{t.notes}</p>}
                           </div>
+                          <button
+                            onClick={() => handleDeleteTransaction(t.id)}
+                            className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            title="Delete payment"
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
                       ))
                     )}
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inbuilt Delete Confirmation Modal */}
+      {deleteConfirmation && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteConfirmation(null)}></div>
+          <div className="relative bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 text-center animate-in zoom-in-95">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-extrabold text-gray-900 mb-2">Delete {deleteConfirmation.title}?</h3>
+            <p className="text-sm text-gray-500 mb-8 px-2">{deleteConfirmation.message}</p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeleteConfirmation(null)}
+                className="flex-1 py-3.5 bg-gray-50 text-gray-700 font-bold rounded-2xl hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                   deleteConfirmation.onConfirm();
+                   setDeleteConfirmation(null);
+                }}
+                className="flex-1 py-3.5 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 shadow-lg shadow-red-200 transition-all active:scale-95"
+              >
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inbuilt Prompt Modal */}
+      {promptModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPromptModal(null)}></div>
+          <div className="relative bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 animate-in zoom-in-95">
+            <h3 className="text-xl font-extrabold text-gray-900 mb-4">{promptModal.title}</h3>
+            <div className="mb-6">
+              <label className="text-[10px] font-black text-gray-400 block mb-2 uppercase tracking-[0.2em]">{promptModal.label}</label>
+              <input 
+                autoFocus
+                type="number"
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-inner outline-none transition-all text-sm"
+                defaultValue={promptModal.defaultValue}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    promptModal.onSave(e.target.value);
+                    setPromptModal(null);
+                  }
+                }}
+                id="prompt-input"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setPromptModal(null)}
+                className="flex-1 py-3 bg-gray-50 text-gray-700 font-bold rounded-2xl hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                   const val = document.getElementById('prompt-input').value;
+                   promptModal.onSave(val);
+                   setPromptModal(null);
+                }}
+                className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95"
+              >
+                Save
+              </button>
             </div>
           </div>
         </div>

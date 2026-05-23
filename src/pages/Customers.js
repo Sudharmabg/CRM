@@ -17,10 +17,11 @@ import {
   Calendar as CalendarIcon,
   IndianRupee,
   User,
-  ExternalLink,
   CreditCard,
   Store,
-  Briefcase
+  Briefcase,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
@@ -90,9 +91,20 @@ const StatusCell = ({ value, row, onUpdate }) => {
 const Customers = () => {
   const [customers, setCustomers] = useState([]);
   const [globalFilter, setGlobalFilter] = useState('');
+  const [isAddingVendorFromCustomer, setIsAddingVendorFromCustomer] = useState(false);
+  const [newVendor, setNewVendor] = useState({
+    name: '',
+    customer_id: '',
+    phone: '',
+    credit_limit: '',
+    notes: ''
+  });
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+  const [promptModal, setPromptModal] = useState(null);
+  const [allPayments, setAllPayments] = useState([]);
   const navigate = useNavigate();
   
   // New entry states for drawer
@@ -126,6 +138,21 @@ const Customers = () => {
     notes: ''
   });
 
+  const fetchCustomers = useCallback(async () => {
+    const [customersRes, paymentsRes] = await Promise.all([
+      supabase.from('customers').select('*').order('created_at', { ascending: false }),
+      supabase.from('customer_payments').select('customer_id, amount')
+    ]);
+
+    if (customersRes.error) console.error('Error fetching customers:', customersRes.error);
+    else setCustomers(customersRes.data);
+    
+    if (paymentsRes.error) console.error('Error fetching payments:', paymentsRes.error);
+    else setAllPayments(paymentsRes.data || []);
+
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     fetchCustomers();
 
@@ -147,18 +174,16 @@ const Customers = () => {
       supabase.removeChannel(channel);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [fetchCustomers]);
 
-  const fetchCustomers = async () => {
-    const { data, error } = await supabase
-      .from('customers')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) console.error('Error fetching customers:', error);
-    else setCustomers(data);
-    setLoading(false);
-  };
+  const customerTotals = useMemo(() => {
+    const map = {};
+    allPayments.forEach(p => {
+      if (!map[p.customer_id]) map[p.customer_id] = 0;
+      map[p.customer_id] += Number(p.amount);
+    });
+    return map;
+  }, [allPayments]);
 
   useEffect(() => {
     if (selectedCustomer) {
@@ -209,7 +234,7 @@ const Customers = () => {
     } catch (error) {
       console.error(error);
     }
-  }, []);
+  }, [fetchCustomers]);
 
 
   const handleUpdateStatus = useCallback((customerId, newStatus, currentItem) => {
@@ -251,21 +276,98 @@ const Customers = () => {
       setNewPayment({ amount: '', payment_method: 'Upi', status: 'Received', notes: '' });
       setShowEntryForm(false);
       fetchCustomerDetails(selectedCustomer.id);
+      fetchCustomers();
     } catch (error) {
       console.error(error);
     }
   };
 
-  const handleAddCustomer = async (e) => {
-    e.preventDefault();
+  const confirmDelete = (title, message, action) => {
+    setDeleteConfirmation({ title, message, onConfirm: action });
+  };
+
+  const confirmPrompt = (title, label, defaultValue, action) => {
+    setPromptModal({ title, label, defaultValue, onSave: action });
+  };
+
+  const handleDeleteMeeting = async (id) => {
+    confirmDelete('Meeting', 'Are you sure you want to delete this meeting? This cannot be undone.', async () => {
+      await supabase.from('meetings').delete().eq('id', id);
+      fetchCustomerDetails(selectedCustomer.id);
+    });
+  };
+
+  const handleDeletePayment = async (id) => {
+    confirmDelete('Payment', 'Are you sure you want to delete this payment record?', async () => {
+      await supabase.from('customer_payments').delete().eq('id', id);
+      fetchCustomerDetails(selectedCustomer.id);
+      fetchCustomers();
+    });
+  };
+
+  const handleUnlinkVendor = async (id) => {
+    confirmDelete('Vendor', 'Are you sure you want to delete this vendor completely? This action cannot be undone.', async () => {
+      await supabase.from('vendors').delete().eq('id', id);
+      fetchCustomerDetails(selectedCustomer.id);
+    });
+  };
+
+
+  const openAddVendorModal = (customerId = '') => {
+    setNewVendor({
+      name: '',
+      customer_id: customerId,
+      phone: '',
+      credit_limit: '',
+      notes: ''
+    });
+    setIsAddingVendorFromCustomer(true);
+  };
+
+  const handleAddVendor = async (e) => {
+    if (e) e.preventDefault();
     try {
-      const { error } = await supabase
-        .from('customers')
-        .insert([{
-          ...newCustomer,
-          budget: Number(newCustomer.budget) || 0
-        }])
-        .select();
+      const payload = {
+        name: newVendor.name,
+        phone: newVendor.phone.replace(/\D/g, '').slice(0, 10),
+        credit_limit: Number(newVendor.credit_limit) || 0,
+        notes: newVendor.notes,
+      };
+      const customerId = newVendor.customer_id || selectedCustomer?.id;
+      if (customerId) payload.customer_id = customerId;
+
+      const { error } = await supabase.from('vendors').insert([payload]);
+      if (error) throw error;
+
+      setSuccessMessage(`Vendor "${newVendor.name}" added successfully.`);
+      setIsAddingVendorFromCustomer(false);
+      setNewVendor({ name: '', customer_id: '', phone: '', credit_limit: '', notes: '' });
+      if (selectedCustomer?.id) fetchCustomerDetails(selectedCustomer.id);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error adding vendor:', error);
+      alert('Could not add vendor. Please check the form and try again.');
+    }
+  };
+
+  const handleAddCustomer = async (e) => {
+      e.preventDefault();
+      // Validate phone number length
+      if (newCustomer.phone.replace(/\D/g, '').length !== 10) {
+        alert('Phone number must be exactly 10 digits');
+        return;
+      }
+      try {
+        const { error } = await supabase
+          .from('customers')
+          .insert([
+            {
+              ...newCustomer,
+              phone: newCustomer.phone.replace(/\D/g, '').slice(0, 10),
+              budget: Number(newCustomer.budget) || 0
+            }
+          ])
+          .select();
 
       if (error) throw error;
       
@@ -282,6 +384,20 @@ const Customers = () => {
       alert('Error adding customer. Please try again.');
     }
   };
+
+  const handleDeleteCustomer = useCallback(async (id, name) => {
+    confirmDelete('Customer', `Are you sure you want to delete ${name}? This action cannot be undone.`, async () => {
+      try {
+        const { error } = await supabase.from('customers').delete().eq('id', id);
+        if (error) throw error;
+        setSuccessMessage(`Deleted ${name}`);
+        fetchCustomers();
+      } catch (error) {
+        console.error('Error deleting customer:', error);
+        alert('Could not delete customer. They might have related records.');
+      }
+    });
+  }, [fetchCustomers]);
 
   const columns = useMemo(() => [
     {
@@ -300,7 +416,14 @@ const Customers = () => {
       cell: ({ row, getValue }) => (
         <InlineEdit 
           value={getValue()} 
-          onSave={(val) => handleUpdateField(row.original.id, 'phone', val, row.original.name)}
+          onSave={(val) => {
+            const sanitized = val.replace(/\\D/g, '').slice(0, 10);
+            if (sanitized.length !== 10) {
+              alert('Phone number must be exactly 10 digits');
+              return;
+            }
+            handleUpdateField(row.original.id, 'phone', sanitized, row.original.name);
+          }}
         />
       )
     },
@@ -333,14 +456,31 @@ const Customers = () => {
         const amount = Number(getValue() || 0);
         return (
           <button 
-            onClick={() => {
-              const val = prompt("New budget:", amount);
-              if (val !== null) handleUpdateField(row.original.id, 'budget', Number(val), row.original.name);
-            }}
-            className="text-gray-900 font-bold hover:text-blue-600"
-          >
+          onClick={() => {
+            confirmPrompt("Edit Budget", "New budget:", amount, (val) => {
+              if (val !== null && val !== "") {
+                handleUpdateField(row.original.id, 'budget', Number(val), row.original.name);
+              }
+            });
+          }}
+          className="font-medium text-gray-900 hover:text-blue-600 transition-colors"
+        >
             {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount)}
           </button>
+        );
+      }
+    },
+    {
+      id: 'total_due',
+      header: () => <div className="flex items-center space-x-2 font-semibold text-red-900 leading-none"><IndianRupee size={15} /><span>Total Due</span></div>,
+      cell: ({ row }) => {
+        const budget = Number(row.original.budget || 0);
+        const paid = customerTotals[row.original.id] || 0;
+        const due = budget - paid;
+        return (
+          <span className="font-bold text-red-600">
+            {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(due > 0 ? due : 0)}
+          </span>
         );
       }
     },
@@ -351,17 +491,27 @@ const Customers = () => {
     },
     {
       id: 'actions',
+      header: 'Action',
       cell: ({ row }) => (
-        <button 
-          onClick={() => { setSelectedCustomer(row.original); setActiveTab('Overview'); }}
-          className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-all group"
-          title="View Details"
-        >
-          <ExternalLink size={18} className="transform group-hover:scale-110 transition-transform" />
-        </button>
+        <div className="flex items-center space-x-2">
+          <button 
+            onClick={() => { setSelectedCustomer(row.original); setActiveTab('Overview'); }}
+            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-all group shadow-sm bg-blue-50"
+            title="Edit Details"
+          >
+            <Edit2 size={16} className="transform group-hover:scale-110 transition-transform" />
+          </button>
+          <button 
+            onClick={() => handleDeleteCustomer(row.original.id, row.original.name)}
+            className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg transition-all group shadow-sm bg-red-50"
+            title="Delete Customer"
+          >
+            <Trash2 size={16} className="transform group-hover:scale-110 transition-transform" />
+          </button>
+        </div>
       )
     }
-  ], [handleUpdateField, handleUpdateStatus]);
+  ], [handleDeleteCustomer, handleUpdateField, handleUpdateStatus, customerTotals]);
 
   const table = useReactTable({
     data: customers,
@@ -390,6 +540,13 @@ const Customers = () => {
           >
             <Store size={18} className="text-emerald-600" />
             <span>Manage Vendors</span>
+          </button>
+          <button
+            onClick={() => openAddVendorModal(selectedCustomer?.id || '')}
+            className="flex-1 sm:flex-none flex items-center justify-center space-x-2 px-3 sm:px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all text-[11px] sm:text-sm font-bold shadow-lg shadow-blue-100 whitespace-nowrap"
+          >
+            <Plus size={18} />
+            <span>Add Vendor</span>
           </button>
           <button 
             onClick={() => setIsAddDrawerOpen(true)}
@@ -459,7 +616,15 @@ const Customers = () => {
                   {selectedCustomer.name.charAt(0)}
                 </div>
                 <div>
-                  <h3 className="text-lg md:text-xl font-extrabold text-gray-900 leading-tight">{selectedCustomer.name}</h3>
+                  <h3 className="text-lg md:text-xl font-extrabold text-gray-900 leading-tight">
+                    <InlineEdit 
+                      value={selectedCustomer.name} 
+                      onSave={(val) => {
+                        handleUpdateField(selectedCustomer.id, 'name', val, selectedCustomer.name);
+                        setSelectedCustomer({...selectedCustomer, name: val});
+                      }} 
+                    />
+                  </h3>
                   <div className="flex items-center space-x-2 mt-0.5">
                     <span className="text-[9px] md:text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">{selectedCustomer.status}</span>
                   </div>
@@ -472,7 +637,17 @@ const Customers = () => {
               <div className="grid grid-cols-2 gap-3 md:gap-4">
                 <div className="p-3 md:p-4 bg-gray-50 rounded-2xl border border-gray-100">
                   <div className="text-[9px] md:text-[10px] uppercase font-bold text-gray-400 tracking-widest mb-1">Total Budget</div>
-                  <div className="text-base md:text-lg font-black text-gray-900 leading-none">
+                  <div 
+                    className="text-base md:text-lg font-black text-gray-900 leading-none cursor-pointer hover:text-blue-600 transition-colors"
+                    onClick={() => {
+                      confirmPrompt("Edit Budget", "Enter new budget:", selectedCustomer.budget, (val) => {
+                        if (val !== null && val !== "") {
+                          handleUpdateField(selectedCustomer.id, 'budget', Number(val), selectedCustomer.name);
+                          setSelectedCustomer({...selectedCustomer, budget: Number(val)});
+                        }
+                      });
+                    }}
+                  >
                     {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(selectedCustomer.budget)}
                   </div>
                 </div>
@@ -484,9 +659,9 @@ const Customers = () => {
                 </div>
               </div>
 
-              <div className="space-y-4">
+                  <div className="space-y-4">
                  <div className="flex border-b border-gray-100 overflow-x-auto no-scrollbar">
-                  {['Overview', 'Meetings', 'Vendors', 'Payments'].map(tab => (
+                  {['Overview', 'Vendors', 'Meetings', 'Payments'].map(tab => (
                     <button 
                       key={tab}
                       onClick={() => { setActiveTab(tab); setShowEntryForm(false); }}
@@ -505,13 +680,42 @@ const Customers = () => {
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-1">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                         <div className="flex items-center space-x-3 text-gray-700 p-4 bg-gray-50 rounded-2xl border border-gray-100/50">
-                          <Phone size={16} className="text-blue-500" /> <span className="font-bold">{selectedCustomer.phone}</span>
+                          <Phone size={16} className="text-blue-500 shrink-0" />
+                          <div className="flex-1 font-bold">
+                             <InlineEdit 
+                               value={selectedCustomer.phone}
+                               onSave={(val) => {
+                                 handleUpdateField(selectedCustomer.id, 'phone', val, selectedCustomer.name);
+                                 setSelectedCustomer({...selectedCustomer, phone: val});
+                               }}
+                             />
+                          </div>
                         </div>
                         <div className="flex items-center space-x-3 text-gray-700 p-4 bg-gray-50 rounded-2xl border border-gray-100/50">
-                          <CalendarIcon size={16} className="text-blue-500" /> <span className="font-bold">{selectedCustomer.event_date || 'N/A'}</span>
+                          <CalendarIcon size={16} className="text-blue-500 shrink-0" />
+                          <div className="flex-1 font-bold">
+                            <input 
+                              type="date"
+                              className="bg-transparent border-0 p-0 text-gray-900 focus:ring-0 cursor-pointer text-sm w-full font-bold outline-none"
+                              value={selectedCustomer.event_date || ''}
+                              onChange={(e) => {
+                                handleUpdateField(selectedCustomer.id, 'event_date', e.target.value, selectedCustomer.name);
+                                setSelectedCustomer({...selectedCustomer, event_date: e.target.value});
+                              }}
+                            />
+                          </div>
                         </div>
                         <div className="sm:col-span-2 flex items-center space-x-3 text-gray-700 p-4 bg-gray-50 rounded-2xl border border-gray-100/50">
-                          <MapPin size={16} className="text-blue-500" /> <span className="font-bold truncate">{selectedCustomer.venue || 'TBD'}</span>
+                          <MapPin size={16} className="text-blue-500 shrink-0" />
+                          <div className="flex-1 font-bold truncate">
+                             <InlineEdit 
+                               value={selectedCustomer.venue}
+                               onSave={(val) => {
+                                 handleUpdateField(selectedCustomer.id, 'venue', val, selectedCustomer.name);
+                                 setSelectedCustomer({...selectedCustomer, venue: val});
+                               }}
+                             />
+                          </div>
                         </div>
                       </div>
                       <div>
@@ -531,7 +735,7 @@ const Customers = () => {
                       <div className="flex justify-between items-center px-1">
                         <h5 className="font-extrabold text-gray-900 text-sm tracking-tight">Linked Vendors</h5>
                         <button 
-                          onClick={() => navigate('/vendors')}
+                          onClick={() => openAddVendorModal(selectedCustomer?.id || '')}
                           className="text-[10px] flex items-center space-x-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full font-bold hover:bg-blue-100 transition-colors uppercase tracking-wider"
                         >
                           <Plus size={12} /> <span>Link New Vendor</span>
@@ -546,7 +750,7 @@ const Customers = () => {
                           </div>
                         ) : (
                           customerVendors.map(v => (
-                            <div key={v.id} className="p-4 border border-gray-100 rounded-2xl bg-white shadow-sm flex justify-between items-center group hover:border-blue-100 transition-all">
+                            <div key={v.id} className="p-4 border border-gray-100 rounded-2xl bg-white shadow-sm flex flex-col sm:flex-row sm:justify-between sm:items-center group hover:border-blue-100 transition-all gap-3">
                               <div className="flex items-center space-x-3">
                                 <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
                                   <Briefcase size={16} />
@@ -556,11 +760,16 @@ const Customers = () => {
                                   <div className="text-[10px] text-gray-400 font-bold">{v.phone}</div>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <div className="text-xs font-black text-gray-900">
-                                  {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v.credit_limit)}
+                              <div className="flex items-center justify-between sm:justify-end space-x-4">
+                                <div className="text-left sm:text-right">
+                                  <div className="text-xs font-black text-gray-900">
+                                    {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v.credit_limit)}
+                                  </div>
+                                  <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Contract Value</span>
                                 </div>
-                                <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Contract Value</span>
+                                <button onClick={() => handleUnlinkVendor(v.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                  <Trash2 size={16} />
+                                </button>
                               </div>
                             </div>
                           ))
@@ -599,10 +808,15 @@ const Customers = () => {
                         {customerMeetings.map(m => (
                           <div key={m.id} className="p-5 border border-gray-50 bg-gray-50/30 rounded-[1.5rem] text-sm group hover:border-blue-100 hover:bg-white transition-all">
                             <div className="flex justify-between items-center mb-2">
-                              <span className="font-black text-gray-900">
-                                {new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }).format(parseISO(m.meeting_date))}
-                              </span>
-                              <span className="text-[10px] bg-white border border-gray-100 px-2.5 py-1 rounded-lg font-bold text-gray-400">{m.attended_by}</span>
+                              <div className="flex items-center space-x-2">
+                                <span className="font-black text-gray-900">
+                                  {new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }).format(parseISO(m.meeting_date))}
+                                </span>
+                                <span className="text-[10px] bg-white border border-gray-100 px-2.5 py-1 rounded-lg font-bold text-gray-400">{m.attended_by}</span>
+                              </div>
+                              <button onClick={() => handleDeleteMeeting(m.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                <Trash2 size={14} />
+                              </button>
                             </div>
                             <p className="text-gray-600 leading-relaxed indent-2 italic">"{m.notes}"</p>
                           </div>
@@ -647,7 +861,7 @@ const Customers = () => {
 
                       <div className="space-y-3">
                         {customerPayments.map(p => (
-                          <div key={p.id} className="p-5 border border-gray-100 bg-white rounded-3xl shadow-sm flex items-center justify-between group hover:border-emerald-200 transition-all">
+                          <div key={p.id} className="p-5 border border-gray-100 bg-white rounded-3xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between group hover:border-emerald-200 transition-all gap-4">
                              <div className="flex items-center space-x-4">
                                 <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-2xl group-hover:scale-110 transition-transform">
                                    <CreditCard size={20} />
@@ -661,9 +875,14 @@ const Customers = () => {
                                    </div>
                                 </div>
                              </div>
-                             <div className="text-right">
-                                <div className="text-[9px] font-black px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full tracking-widest">{p.status.toUpperCase()}</div>
-                                {p.notes && <div className="text-[10px] text-gray-400 mt-1 font-medium">{p.notes}</div>}
+                             <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto space-x-4">
+                               <div className="text-left sm:text-right">
+                                  <div className="text-[9px] font-black px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full tracking-widest">{p.status.toUpperCase()}</div>
+                                  {p.notes && <div className="text-[10px] text-gray-400 mt-1 font-medium">{p.notes}</div>}
+                               </div>
+                               <button onClick={() => handleDeletePayment(p.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                 <Trash2 size={16} />
+                               </button>
                              </div>
                           </div>
                         ))}
@@ -719,10 +938,14 @@ const Customers = () => {
                     <input 
                       required
                       type="tel"
-                      placeholder="e.g. +91 98765 43210"
+                      maxLength={10}
+                      placeholder="e.g. 9876543210"
                       className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-inner outline-none transition-all text-sm"
                       value={newCustomer.phone}
-                      onChange={e => setNewCustomer({...newCustomer, phone: e.target.value})}
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setNewCustomer({...newCustomer, phone: val});
+                      }}
                     />
                   </div>
                 </div>
@@ -797,7 +1020,181 @@ const Customers = () => {
         </div>
       )}
 
+      {/* Inbuilt Delete Confirmation Modal */}
+      {/* Inbuilt Add Vendor Modal from Customers */}
+      {isAddingVendorFromCustomer && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsAddingVendorFromCustomer(false)} />
+          <div className="relative w-full md:max-w-lg bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="p-6 border-b flex justify-between items-center bg-white shadow-sm">
+              <div className="flex items-center space-x-3">
+                <div className="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center font-bold text-xl shadow-lg">
+                  <Plus size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-extrabold text-gray-900 leading-tight">Add New Vendor</h3>
+                  <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mt-0.5">Register Partner</p>
+                </div>
+              </div>
+              <button onClick={() => setIsAddingVendorFromCustomer(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            <form onSubmit={handleAddVendor} className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 block mb-1.5 uppercase tracking-[0.2em]">Vendor Name</label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="e.g. Wedding Florals Inc."
+                    className="w-full px-4 py-3.5 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-inner outline-none transition-all text-sm"
+                    value={newVendor.name}
+                    onChange={e => setNewVendor({ ...newVendor, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 block mb-1.5 uppercase tracking-[0.2em]">Linked Event / Customer</label>
+                  <select
+                    className="w-full px-4 py-3.5 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-inner outline-none transition-all text-sm appearance-none"
+                    value={newVendor.customer_id}
+                    onChange={e => setNewVendor({ ...newVendor, customer_id: e.target.value })}
+                  >
+                    <option value="">— Select Customer —</option>
+                    {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-gray-400 block mb-1.5 uppercase tracking-[0.2em]">Phone Number</label>
+                    <div className="relative">
+                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <input
+                        required
+                        type="tel"
+                        placeholder="9876543210"
+                        className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-inner outline-none transition-all text-sm"
+                        value={newVendor.phone}
+                        onChange={e => setNewVendor({ ...newVendor, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-gray-400 block mb-1.5 uppercase tracking-[0.2em]">Credit Limit</label>
+                    <div className="relative">
+                      <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600" size={16} />
+                      <input
+                        type="number"
+                        placeholder="0"
+                        className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-black text-gray-900 shadow-inner outline-none transition-all text-sm"
+                        value={newVendor.credit_limit}
+                        onChange={e => setNewVendor({ ...newVendor, credit_limit: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 block mb-1.5 uppercase tracking-[0.2em]">Internal Notes</label>
+                  <textarea
+                    placeholder="General terms, services, bank details..."
+                    className="w-full p-5 bg-gray-50 border-0 rounded-3xl focus:ring-2 focus:ring-blue-100 font-medium text-gray-800 shadow-inner outline-none min-h-[120px] transition-all text-sm"
+                    value={newVendor.notes}
+                    onChange={e => setNewVendor({ ...newVendor, notes: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="pt-4 flex flex-col space-y-3">
+                <button
+                  type="submit"
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-base shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all transform active:scale-[0.98]"
+                >
+                  Review & Save Vendor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingVendorFromCustomer(false)}
+                  className="w-full py-4 bg-gray-50 text-gray-500 rounded-2xl font-bold text-sm hover:bg-gray-100 transition-all"
+                >
+                  Cancel Entry
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {deleteConfirmation && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteConfirmation(null)}></div>
+          <div className="relative bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 text-center animate-in zoom-in-95">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-xl font-extrabold text-gray-900 mb-2">Delete {deleteConfirmation.title}?</h3>
+            <p className="text-sm text-gray-500 mb-8 px-2">{deleteConfirmation.message}</p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeleteConfirmation(null)}
+                className="flex-1 py-3.5 bg-gray-50 text-gray-700 font-bold rounded-2xl hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                   deleteConfirmation.onConfirm();
+                   setDeleteConfirmation(null);
+                }}
+                className="flex-1 py-3.5 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 shadow-lg shadow-red-200 transition-all active:scale-95"
+              >
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* Inbuilt Prompt Modal */}
+      {promptModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPromptModal(null)}></div>
+          <div className="relative bg-white rounded-3xl w-full max-w-sm shadow-2xl p-6 animate-in zoom-in-95">
+            <h3 className="text-xl font-extrabold text-gray-900 mb-4">{promptModal.title}</h3>
+            <div className="mb-6">
+              <label className="text-[10px] font-black text-gray-400 block mb-2 uppercase tracking-[0.2em]">{promptModal.label}</label>
+              <input 
+                autoFocus
+                type="number"
+                className="w-full px-4 py-3 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-inner outline-none transition-all text-sm"
+                defaultValue={promptModal.defaultValue}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    promptModal.onSave(e.target.value);
+                    setPromptModal(null);
+                  }
+                }}
+                id="prompt-input"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setPromptModal(null)}
+                className="flex-1 py-3 bg-gray-50 text-gray-700 font-bold rounded-2xl hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                   const val = document.getElementById('prompt-input').value;
+                   promptModal.onSave(val);
+                   setPromptModal(null);
+                }}
+                className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
