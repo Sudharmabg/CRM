@@ -7,7 +7,6 @@ import {
   Calendar, 
   LogOut,
   X,
-  PiggyBank
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
