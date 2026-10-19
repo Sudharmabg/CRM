@@ -5,6 +5,9 @@ import {
   Users, 
   Store, 
   Calendar, 
+  PackageOpen,
+  Boxes,
+  Receipt,
   LogOut,
   X,
 } from 'lucide-react';
@@ -27,6 +30,9 @@ const Sidebar = ({ onClose }) => {
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/customers', icon: Users, label: 'Customers' },
     { to: '/vendors', icon: Store, label: 'Vendors' },
+    { to: '/rentals', icon: PackageOpen, label: 'Rentals' },
+    { to: '/inventory', icon: Boxes, label: 'Inventory' },
+    { to: '/overheads', icon: Receipt, label: 'Overheads' },
     { to: '/calendar', icon: Calendar, label: 'Calendar' },
   ];
 

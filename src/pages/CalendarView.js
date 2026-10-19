@@ -74,15 +74,17 @@ const CalendarView = () => {
     const ch = supabase.channel('calendar_v6')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meetings' }, fetchAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rentals' }, fetchAll)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
 
   const fetchAll = async () => {
 
-    const [custRes, meetRes] = await Promise.all([
+    const [custRes, meetRes, rentRes] = await Promise.all([
       supabase.from('customers').select('*').order('name'),
-      supabase.from('meetings').select('*, customers(name)')
+      supabase.from('meetings').select('*, customers(name)'),
+      supabase.from('rentals').select('id, customer_name, address, pickup_date, return_date')
     ]);
 
     const allCustomers = custRes.data || [];
@@ -126,7 +128,30 @@ const CalendarView = () => {
         extendedProps: { type: 'Follow-up', originalId: m.customer_id, notes: m.notes, attended_by: m.attended_by, name: m.customers?.name }
       }));
 
-    setEvents([...cEvents, ...mEvents, ...fEvents]);
+    // 4. Rental pick-ups and returns
+    const allRentals = rentRes.data || [];
+    const pEvents = allRentals
+      .filter(r => !!r.pickup_date)
+      .map(r => ({
+        id: `pickup-${r.id}`,
+        title: `Pick-up: ${r.customer_name}`,
+        start: r.pickup_date,
+        backgroundColor: '#ea580c',
+        borderColor: '#c2410c',
+        extendedProps: { type: 'Pick-up', name: r.customer_name, venue: r.address }
+      }));
+    const rEvents = allRentals
+      .filter(r => !!r.return_date)
+      .map(r => ({
+        id: `return-${r.id}`,
+        title: `Return: ${r.customer_name}`,
+        start: r.return_date,
+        backgroundColor: '#7c3aed',
+        borderColor: '#6d28d9',
+        extendedProps: { type: 'Return', name: r.customer_name, venue: r.address }
+      }));
+
+    setEvents([...cEvents, ...mEvents, ...fEvents, ...pEvents, ...rEvents]);
   };
 
   const handleAddMeeting = async (e) => {
@@ -247,6 +272,8 @@ const CalendarView = () => {
             <div className="flex items-center space-x-1.5 text-blue-600"><div className="w-2 h-2 rounded-full bg-blue-600" /><span>Event</span></div>
             <div className="flex items-center space-x-1.5 text-emerald-600"><div className="w-2 h-2 rounded-full bg-emerald-600" /><span>Meeting</span></div>
             <div className="flex items-center space-x-1.5 text-[#1a3a2a]"><div className="w-2 h-2 rounded-full bg-[#1a3a2a]" /><span>Follow-up</span></div>
+            <div className="flex items-center space-x-1.5 text-orange-600"><div className="w-2 h-2 rounded-full bg-orange-600" /><span>Pick-up</span></div>
+            <div className="flex items-center space-x-1.5 text-purple-600"><div className="w-2 h-2 rounded-full bg-purple-600" /><span>Return</span></div>
           </div>
         </div>
 
@@ -267,6 +294,8 @@ const CalendarView = () => {
                 <option value="Event">Events Only</option>
                 <option value="Meeting">Meetings Only</option>
                 <option value="Follow-up">Follow-ups</option>
+                <option value="Pick-up">Rental Pick-ups</option>
+                <option value="Return">Rental Returns</option>
               </select>
             </div>
 
@@ -288,6 +317,8 @@ const CalendarView = () => {
                           <div className="flex items-center gap-2 mb-1.5">
                             <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest ${
                               d.type === 'Follow-up' ? 'bg-[#1a3a2a] text-white' : 
+                              d.type === 'Pick-up' ? 'bg-orange-100 text-orange-800' : 
+                              d.type === 'Return' ? 'bg-purple-100 text-purple-800' : 
                               d.type === 'Meeting' ? 'bg-emerald-100 text-emerald-800' : 
                               'bg-blue-100 text-blue-800'
                             }`}>{d.type}</span>
@@ -583,6 +614,8 @@ const CalendarView = () => {
                             <div className="flex justify-between items-start mb-2">
                               <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest ${
                                 d.type === 'Follow-up' ? 'bg-[#1a3a2a] text-white' : 
+                                d.type === 'Pick-up' ? 'bg-orange-100 text-orange-800' : 
+                                d.type === 'Return' ? 'bg-purple-100 text-purple-800' : 
                                 d.type === 'Meeting' ? 'bg-emerald-100 text-emerald-800' : 
                                 'bg-blue-100 text-blue-800'
                               }`}>{d.type}</span>

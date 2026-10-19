@@ -8,6 +8,9 @@ import Customers from './pages/Customers';
 import Vendors from './pages/Vendors';
 import CalendarView from './pages/CalendarView';
 import Budget from './pages/Budget';
+import Rentals from './pages/Rentals';
+import Inventory from './pages/Inventory';
+import Overheads from './pages/Overheads';
 
 function App() {
   return (
@@ -33,6 +36,21 @@ function App() {
           <Route path="/calendar" element={
             <Layout>
               <CalendarView />
+            </Layout>
+          } />
+          <Route path="/rentals" element={
+            <Layout>
+              <Rentals />
+            </Layout>
+          } />
+          <Route path="/inventory" element={
+            <Layout>
+              <Inventory />
+            </Layout>
+          } />
+          <Route path="/overheads" element={
+            <Layout>
+              <Overheads />
             </Layout>
           } />
           <Route path="/budget" element={

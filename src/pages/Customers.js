@@ -21,9 +21,59 @@ import {
   Store,
   Briefcase,
   Edit2,
-  Trash2
+  Trash2,
+  FileText,
+  Upload
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+
+// Uploads a Zoho quotation PDF to the `quotations` storage bucket and returns its public URL.
+const uploadQuotation = async (customerId, file) => {
+  const path = `${customerId}/${Date.now()}-${file.name.replace(/[^\w.-]/g, '_')}`;
+  const { error } = await supabase.storage.from('quotations').upload(path, file, { contentType: 'application/pdf' });
+  if (error) throw error;
+  return supabase.storage.from('quotations').getPublicUrl(path).data.publicUrl;
+};
+
+const QuotationCell = ({ url, onUpload, onRemove }) => {
+  const [busy, setBusy] = useState(false);
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      alert('Please upload the Zoho quotation as a PDF file');
+      return;
+    }
+    setBusy(true);
+    try {
+      await onUpload(file);
+    } catch (err) {
+      console.error('Quotation upload failed:', err);
+      alert('Could not upload quotation: ' + err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center space-x-2">
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer" className="flex items-center space-x-1 text-xs font-bold text-blue-600 hover:underline" title="View quotation">
+          <FileText size={14} /><span>View</span>
+        </a>
+      )}
+      <label className="cursor-pointer flex items-center space-x-1 text-[11px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+        <Upload size={12} /><span>{busy ? 'Uploading...' : url ? 'Replace' : 'Upload'}</span>
+        <input type="file" accept="application/pdf" className="hidden" disabled={busy} onChange={handleFile} />
+      </label>
+      {url && (
+        <button onClick={onRemove} className="text-gray-300 hover:text-red-500" title="Remove quotation"><X size={14} /></button>
+      )}
+    </div>
+  );
+};
 
 const InlineEdit = ({ value, onSave, type = 'text' }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -483,6 +533,20 @@ const Customers = () => {
           </span>
         );
       }
+    },
+    {
+      accessorKey: 'quotation_url',
+      header: () => <div className="flex items-center space-x-2 font-semibold text-emerald-900 leading-none"><FileText size={15} /><span>Quotation</span></div>,
+      cell: ({ row, getValue }) => (
+        <QuotationCell
+          url={getValue()}
+          onUpload={async (file) => {
+            const url = await uploadQuotation(row.original.id, file);
+            await handleUpdateField(row.original.id, 'quotation_url', url, row.original.name);
+          }}
+          onRemove={() => handleUpdateField(row.original.id, 'quotation_url', null, row.original.name)}
+        />
+      )
     },
     {
       accessorKey: 'status',

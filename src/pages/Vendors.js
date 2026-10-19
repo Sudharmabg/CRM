@@ -67,6 +67,9 @@ const Vendors = () => {
   const [vendors, setVendors] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [allTransactions, setAllTransactions] = useState([]);
+  const [vendorEvents, setVendorEvents] = useState([]);
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [newEvent, setNewEvent] = useState({ customer_id: '', amount: '', notes: '' });
   const [globalFilter, setGlobalFilter] = useState('');
   const [isAddingVendor, setIsAddingVendor] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState(null);
@@ -94,19 +97,22 @@ const Vendors = () => {
     customer_id: '',
     phone: '',
     credit_limit: 0,
+    old_balance: 0,
     notes: ''
   });
 
   const fetchAll = useCallback(async () => {
-    const [vendorsRes, customersRes, txRes] = await Promise.all([
+    const [vendorsRes, customersRes, txRes, evRes] = await Promise.all([
       supabase.from('vendors').select('*').order('created_at', { ascending: false }),
       supabase.from('customers').select('id, name').order('name', { ascending: true }),
       supabase.from('vendor_transactions').select('*').order('transaction_date', { ascending: false }),
+      supabase.from('vendor_events').select('*').order('created_at', { ascending: false }),
     ]);
 
     if (!vendorsRes.error) setVendors(vendorsRes.data);
     if (!customersRes.error) setCustomers(customersRes.data);
     if (!txRes.error) setAllTransactions(txRes.data);
+    if (!evRes.error) setVendorEvents(evRes.data);
     setLoading(false);
   }, []);
 
@@ -117,6 +123,7 @@ const Vendors = () => {
       .channel('vendors_changes_all')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vendors' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vendor_transactions' }, fetchAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vendor_events' }, fetchAll)
       .subscribe();
 
     const handleKeyDown = (e) => {
@@ -143,6 +150,17 @@ const Vendors = () => {
     });
     return map;
   }, [allTransactions]);
+
+  const eventTotals = useMemo(() => {
+    const map = {};
+    vendorEvents.forEach(ev => { map[ev.vendor_id] = (map[ev.vendor_id] || 0) + Number(ev.amount || 0); });
+    return map;
+  }, [vendorEvents]);
+
+  const selectedVendorEvents = useMemo(
+    () => (selectedVendor ? vendorEvents.filter(ev => ev.vendor_id === selectedVendor.id) : []),
+    [selectedVendor, vendorEvents]
+  );
 
   const customerMap = useMemo(() => {
     const m = {};
@@ -178,6 +196,7 @@ const Vendors = () => {
         name: newVendor.name,
         phone: newVendor.phone,
         credit_limit: Number(newVendor.credit_limit),
+        old_balance: Number(newVendor.old_balance || 0),
         notes: newVendor.notes,
       };
       if (newVendor.customer_id) payload.customer_id = newVendor.customer_id;
@@ -188,7 +207,7 @@ const Vendors = () => {
       setSuccessMessage(`Vendor "${newVendor.name}" added successfully.`);
       setIsAddingVendor(false);
       setIsReviewingNew(false);
-      setNewVendor({ name: '', customer_id: '', phone: '', credit_limit: 0, notes: '' });
+      setNewVendor({ name: '', customer_id: '', phone: '', credit_limit: 0, old_balance: 0, notes: '' });
       fetchAll();
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (error) {
@@ -232,6 +251,39 @@ const Vendors = () => {
         } catch (error) {
           console.error('Error deleting transaction:', error);
         }
+      }
+    });
+  };
+
+  const handleAddEvent = async (e) => {
+    e.preventDefault();
+    try {
+      const { error } = await supabase.from('vendor_events').insert([{
+        vendor_id: selectedVendor.id,
+        customer_id: newEvent.customer_id,
+        amount: Number(newEvent.amount),
+        notes: newEvent.notes,
+      }]);
+      if (error) throw error;
+      setNewEvent({ customer_id: '', amount: '', notes: '' });
+      setShowEventForm(false);
+      setSuccessMessage('Event charge added');
+      fetchAll();
+      setTimeout(() => setSuccessMessage(''), 2000);
+    } catch (error) {
+      console.error('Error adding vendor event:', error);
+      alert('Could not add event charge: ' + error.message);
+    }
+  };
+
+  const handleDeleteEvent = (id) => {
+    setDeleteConfirmation({
+      title: 'Event Charge',
+      message: 'Are you sure you want to delete this event charge?',
+      onConfirm: async () => {
+        const { error } = await supabase.from('vendor_events').delete().eq('id', id);
+        if (error) console.error('Error deleting vendor event:', error);
+        else fetchAll();
       }
     });
   };
@@ -315,6 +367,24 @@ const Vendors = () => {
       )
     },
     {
+      accessorKey: 'old_balance',
+      header: () => <div className="flex items-center space-x-2 font-semibold text-emerald-900 leading-none"><History size={15} /><span>Old Balance</span></div>,
+      cell: ({ row, getValue }) => (
+        <button
+          onClick={() => {
+            confirmPrompt("Edit Old Balance", "Carried-forward balance:", getValue() || 0, (val) => {
+              if (val !== null && val !== "") {
+                handleUpdateField(row.original.id, 'old_balance', Number(val), row.original.name);
+              }
+            });
+          }}
+          className="font-medium text-gray-900 hover:text-blue-600 transition-colors"
+        >
+          {fmt(getValue())}
+        </button>
+      )
+    },
+    {
       id: 'total_paid',
       header: () => <div className="flex items-center space-x-2 font-semibold text-emerald-900 leading-none"><Wallet size={15} /><span>Total Paid</span></div>,
       cell: ({ row }) => {
@@ -327,8 +397,10 @@ const Vendors = () => {
       header: () => <div className="flex items-center space-x-2 font-semibold text-emerald-900 leading-none"><TrendingDown size={15} /><span>Balance Due</span></div>,
       cell: ({ row }) => {
         const limit = Number(row.original.credit_limit || 0);
+        const old   = Number(row.original.old_balance || 0);
         const paid  = vendorTotals[row.original.id]?.paid || 0;
-        const bal   = limit - paid;
+        const evts  = eventTotals[row.original.id] || 0;
+        const bal   = old + limit + evts - paid;
         return (
           <span className={`font-bold ${bal > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>
             {fmt(bal)}
@@ -361,7 +433,7 @@ const Vendors = () => {
         </div>
       )
     }
-  ], [vendorTotals, customers, handleUpdateField, handleDeleteVendor]);
+  ], [vendorTotals, eventTotals, customers, handleUpdateField, handleDeleteVendor]);
 
   const table = useReactTable({
     data: vendors,
@@ -531,6 +603,20 @@ const Vendors = () => {
                 </div>
 
                 <div>
+                  <label className="text-[10px] font-black text-gray-400 block mb-1.5 uppercase tracking-[0.2em]">Old Balance (carried forward)</label>
+                  <div className="relative">
+                    <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500" size={16} />
+                    <input
+                      type="number"
+                      placeholder="0"
+                      className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border-0 rounded-2xl focus:ring-2 focus:ring-blue-100 font-black text-gray-900 shadow-inner outline-none transition-all text-sm"
+                      value={newVendor.old_balance}
+                      onChange={e => setNewVendor({...newVendor, old_balance: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div>
                   <label className="text-[10px] font-black text-gray-400 block mb-1.5 uppercase tracking-[0.2em]">Internal Notes</label>
                   <textarea 
                     placeholder="General terms, services, bank details..."
@@ -576,6 +662,8 @@ const Vendors = () => {
                 <span className="font-medium text-gray-900">{linkedCustomerName || 'Unassigned'}</span>
                 <span className="text-gray-500">Phone</span>
                 <span className="text-gray-900">{newVendor.phone}</span>
+                <span className="text-gray-500">Old Balance</span>
+                <span className="font-bold text-orange-600">{fmt(newVendor.old_balance)}</span>
                 <span className="text-gray-500">Credit Limit</span>
                 <span className="font-bold text-blue-600">{fmt(newVendor.credit_limit)}</span>
               </div>
@@ -613,7 +701,11 @@ const Vendors = () => {
             </div>
 
             {/* Stats row */}
-            <div className="px-4 md:px-6 py-4 grid grid-cols-3 gap-2 md:gap-3 border-b bg-gray-50/30 shrink-0">
+            <div className="px-4 md:px-6 py-4 grid grid-cols-4 gap-2 md:gap-3 border-b bg-gray-50/30 shrink-0">
+               <div className="p-2 md:p-3 bg-white rounded-xl border border-gray-100">
+                  <div className="text-[8px] md:text-[9px] uppercase font-bold text-gray-400 tracking-tighter">Old Bal.</div>
+                  <div className="text-xs md:text-sm font-black text-gray-900">{fmt(selectedVendor.old_balance)}</div>
+               </div>
                <div className="p-2 md:p-3 bg-white rounded-xl border border-gray-100">
                   <div className="text-[8px] md:text-[9px] uppercase font-bold text-gray-400 tracking-tighter">Limit</div>
                   <div className="text-xs md:text-sm font-black text-gray-900">{fmt(selectedVendor.credit_limit)}</div>
@@ -625,17 +717,17 @@ const Vendors = () => {
                <div className="p-2 md:p-3 bg-white rounded-xl border border-gray-100">
                   <div className="text-[8px] md:text-[9px] uppercase font-bold text-gray-400 tracking-tighter">Due</div>
                   <div className="text-xs md:text-sm font-black text-orange-600">
-                    {fmt((selectedVendor.credit_limit || 0) - (vendorTotals[selectedVendor.id]?.paid || 0))}
+                    {fmt((selectedVendor.old_balance || 0) + (selectedVendor.credit_limit || 0) + (eventTotals[selectedVendor.id] || 0) - (vendorTotals[selectedVendor.id]?.paid || 0))}
                   </div>
                </div>
             </div>
 
             {/* Tabs */}
             <div className="flex px-6 border-b">
-              {['Overview', 'Payments'].map(tab => (
+              {['Overview', 'Events', 'Payments'].map(tab => (
                 <button 
                   key={tab}
-                  onClick={() => { setActiveTab(tab); setShowPaymentForm(false); }}
+                  onClick={() => { setActiveTab(tab); setShowPaymentForm(false); setShowEventForm(false); }}
                   className={`px-4 py-3 font-bold text-sm transition-colors relative ${
                     activeTab === tab ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
                   }`}
@@ -660,6 +752,83 @@ const Vendors = () => {
                       defaultValue={selectedVendor.notes}
                       onBlur={(e) => handleUpdateField(selectedVendor.id, 'notes', e.target.value, selectedVendor.name)}
                     />
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'Events' && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">Event Charges</h4>
+                    <button
+                      onClick={() => setShowEventForm(!showEventForm)}
+                      className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-blue-700 transition-all flex items-center space-x-1"
+                    >
+                      <Plus size={14} /> <span>Add Event</span>
+                    </button>
+                  </div>
+
+                  {showEventForm && (
+                    <form onSubmit={handleAddEvent} className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 space-y-3">
+                      <select
+                        required
+                        className="w-full p-2.5 text-sm rounded-lg border-gray-200 outline-none bg-white font-medium"
+                        value={newEvent.customer_id}
+                        onChange={e => setNewEvent({ ...newEvent, customer_id: e.target.value })}
+                      >
+                        <option value="">— Select Event / Customer —</option>
+                        {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <input
+                        required
+                        type="number"
+                        placeholder="Amount (₹)"
+                        className="w-full p-2.5 text-sm rounded-lg border-gray-200 outline-none font-bold"
+                        value={newEvent.amount}
+                        onChange={e => setNewEvent({ ...newEvent, amount: e.target.value })}
+                      />
+                      <textarea
+                        placeholder="Work / items for this event..."
+                        className="w-full p-2.5 text-sm rounded-lg border-gray-200 outline-none min-h-[60px]"
+                        value={newEvent.notes}
+                        onChange={e => setNewEvent({ ...newEvent, notes: e.target.value })}
+                      />
+                      <div className="flex justify-end space-x-2 pt-1">
+                        <button type="button" onClick={() => setShowEventForm(false)} className="px-3 py-1.5 text-xs text-gray-500 font-medium">Cancel</button>
+                        <button type="submit" className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold">Save Event</button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="space-y-2.5">
+                    {selectedVendorEvents.length === 0 ? (
+                      <div className="py-12 flex flex-col items-center justify-center text-gray-300">
+                        <CalendarDays size={48} className="mb-2 opacity-20" />
+                        <p className="text-sm italic">No event charges yet</p>
+                      </div>
+                    ) : (
+                      <>
+                        {selectedVendorEvents.map(ev => (
+                          <div key={ev.id} className="p-4 border border-gray-100 rounded-xl bg-white shadow-sm flex justify-between items-center group hover:border-red-100 transition-colors">
+                            <div className="space-y-1 min-w-0">
+                              <div className="font-bold text-gray-900 truncate">{customerMap[ev.customer_id] || 'Unknown event'}</div>
+                              <div className="text-sm font-black text-orange-600">{fmt(ev.amount)}</div>
+                              {ev.notes && <p className="text-xs text-gray-500">{ev.notes}</p>}
+                            </div>
+                            <button
+                              onClick={() => handleDeleteEvent(ev.id)}
+                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                              title="Delete event charge"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex justify-between px-1 pt-2 text-sm font-black text-gray-900">
+                          <span>Total event charges</span><span>{fmt(eventTotals[selectedVendor.id] || 0)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
